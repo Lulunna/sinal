@@ -1,0 +1,821 @@
+{
+  "name": "Sinal - Teste A/B de prompts",
+  "nodes": [
+    {
+      "id": "6f1bd4d2-0268-5da6-9510-db21187f88b7",
+      "name": "Webhook do site",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sinal-teste-ab",
+        "responseMode": "onReceived",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "bf3bbe4b-c9d8-5285-bf63-4c3cd5bd365b"
+    },
+    {
+      "id": "ef113d0e-d112-5963-9cd8-4da2c9e733ba",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9f3d4ed3-657c-599e-b9aa-ac04309afd23",
+              "name": "supabase_url",
+              "value": "https://SEU-PROJETO.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "51fe4d00-61c0-5bf5-a083-6e509f56ff02",
+              "name": "model",
+              "value": "gemini-2.5-flash",
+              "type": "string"
+            },
+            {
+              "id": "c4eb58d0-8be5-563e-b106-e8d640f5d3fc",
+              "name": "judge_model",
+              "value": "gemini-2.5-flash",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5196933b-2196-572a-9656-432d9a0e4129",
+      "name": "Ler teste",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "prompt_tests",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "=id=eq.{{ String($('Webhook do site').first().json.body.test_id).replace(/\\D/g,'') || 0 }}&status=eq.pending"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase Sinal"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "c0f8267e-e5ac-5073-8503-89c7bb1886bf",
+      "name": "Validar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const t=$input.first()?.json;\nif(!t||!t.id) return [];   // não existe ou já foi rodado: para aqui\nreturn [{json:{test:t}}];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "c11edc90-b615-54c3-96f2-66795c487e3b",
+      "name": "Marcar como rodando",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.supabase_url }}/rest/v1/prompt_tests?id=eq.{{ $('Validar').first().json.test.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({status:'running'}) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase Sinal"
+        }
+      }
+    },
+    {
+      "id": "5b2cfb7f-dde1-5043-a0b4-c32a4b7f8acc",
+      "name": "Notícias recentes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "articles",
+        "limit": 20,
+        "filterType": "string",
+        "filterString": "excerpt=not.is.null&order=created_at.desc"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase Sinal"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "b129cc7b-edb4-55f8-9ac6-c46798c905d1",
+      "name": "Escolher amostra",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const t=$('Validar').first().json.test;\nconst arts=$input.all().map(i=>i.json).filter(a=>a.excerpt&&a.excerpt.length>40).slice(0,t.sample_size);\nif(!arts.length) return [{json:{_empty:true}}];\nreturn arts.map(a=>({json:{article_id:a.id,title:a.title,excerpt:String(a.excerpt).slice(0,800)}}));"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "9687b0ba-bd1a-535e-858b-42586357ff7f",
+      "name": "Tem notícias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json._empty }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "76a3ddea-dbcc-50c6-8950-e3600841d9b8",
+      "name": "Uma por vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        -80
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "dc91f803-1771-54b3-8a67-ffbea8f5ab62",
+      "name": "Preparar A",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Config').first().json;\nconst t=$('Validar').first().json.test;\nconst a=$('Uma por vez').item.json;\nconst prompt=t.prompt_a+`\\n\\nTítulo: ${a.title}\\nTexto: ${a.excerpt}`;\nreturn {json:{_t0:Date.now(),_model:cfg.model,_body:{contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.3}}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "eb1f9512-f222-556a-9a3b-d2bd265bdbe7",
+      "name": "Gemini: prompt A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Preparar A').item.json._model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ff837982-d7b6-5ebd-b69a-8702ae2c30c7",
+      "name": "Medir A",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const PRICES={'gemini-2.5-flash':[0.30,2.50],'gemini-2.5-flash-lite':[0.10,0.40],'gemini-2.0-flash':[0.10,0.40],'gemini-2.5-pro':[1.25,10]};\nconst cost=(m,i,o)=>{const p=PRICES[m]||[0,0];return Math.round(((i||0)*p[0]+(o||0)*p[1])/1e6*1e6)/1e6;};\nconst src=$('Preparar A').item.json, r=$json, u=r.usageMetadata||{};\nlet text='',err=null;\ntry{ if(r.error) throw new Error(typeof r.error==='string'?r.error:(r.error.message||'erro')); text=(((r.candidates||[])[0]||{}).content||{}).parts?.[0]?.text||''; if(!text) throw new Error('resposta vazia'); }catch(e){err=String(e.message||e).slice(0,300);}\nconst o=(u.candidatesTokenCount||0)+(u.thoughtsTokenCount||0);\nreturn {json:{text,call:{workflow:'teste-ab',step:'resposta-a',model:src._model,prompt_version:null,input_tokens:u.promptTokenCount||0,output_tokens:o,\n latency_ms:Date.now()-src._t0,cost_usd:cost(src._model,u.promptTokenCount||0,o),status:err?'error':'ok',error:err}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "ec230c47-c5d6-5c03-b862-6e2fc55ee1a4",
+      "name": "Pausa 1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2880,
+        -160
+      ],
+      "parameters": {
+        "amount": 4,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "1b77fb55-fd88-594e-b536-01ec74e8ac71",
+      "name": "Preparar B",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Config').first().json;\nconst t=$('Validar').first().json.test;\nconst a=$('Uma por vez').item.json;\nconst prompt=t.prompt_b+`\\n\\nTítulo: ${a.title}\\nTexto: ${a.excerpt}`;\nreturn {json:{_t0:Date.now(),_model:cfg.model,_body:{contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.3}}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "3e1f1244-559a-55a5-ada8-816c9962d559",
+      "name": "Gemini: prompt B",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Preparar B').item.json._model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1e7a8bba-4023-5dc2-91c7-0f2c7e33a8d1",
+      "name": "Medir B",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const PRICES={'gemini-2.5-flash':[0.30,2.50],'gemini-2.5-flash-lite':[0.10,0.40],'gemini-2.0-flash':[0.10,0.40],'gemini-2.5-pro':[1.25,10]};\nconst cost=(m,i,o)=>{const p=PRICES[m]||[0,0];return Math.round(((i||0)*p[0]+(o||0)*p[1])/1e6*1e6)/1e6;};\nconst src=$('Preparar B').item.json, r=$json, u=r.usageMetadata||{};\nlet text='',err=null;\ntry{ if(r.error) throw new Error(typeof r.error==='string'?r.error:(r.error.message||'erro')); text=(((r.candidates||[])[0]||{}).content||{}).parts?.[0]?.text||''; if(!text) throw new Error('resposta vazia'); }catch(e){err=String(e.message||e).slice(0,300);}\nconst o=(u.candidatesTokenCount||0)+(u.thoughtsTokenCount||0);\nreturn {json:{text,call:{workflow:'teste-ab',step:'resposta-b',model:src._model,prompt_version:null,input_tokens:u.promptTokenCount||0,output_tokens:o,\n latency_ms:Date.now()-src._t0,cost_usd:cost(src._model,u.promptTokenCount||0,o),status:err?'error':'ok',error:err}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "3ff3edd0-f370-5411-952b-9d7b96ac98cf",
+      "name": "Pausa 2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        -160
+      ],
+      "parameters": {
+        "amount": 4,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "085894a4-ebfa-5060-b41c-52b92310c6eb",
+      "name": "Preparar juiz",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Config').first().json;\nconst a=$('Uma por vez').item.json;\nconst A=$('Medir A').item.json.text, B=$('Medir B').item.json.text;\nconst flip=Math.random()<0.5;               // sorteia a ordem para a avaliadora não favorecer a posição\nconst r1=flip?B:A, r2=flip?A:B;\nconst prompt=`Você avalia resumos de notícias. Leia o texto original e as duas respostas. Dê nota de 1 a 5 para cada uma (5 = fiel ao texto, clara, útil e no tamanho certo; 1 = errada, vaga ou inventada). Não prefira uma resposta por vir primeiro. Responda SOMENTE JSON: {\"nota_1\":número,\"nota_2\":número}\n\nTEXTO ORIGINAL:\n${a.title}\n${a.excerpt}\n\nRESPOSTA 1:\n${r1}\n\nRESPOSTA 2:\n${r2}`;\nreturn {json:{_t0:Date.now(),_flip:flip,_model:cfg.judge_model,_body:{contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0,responseMimeType:'application/json'}}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "94073a0c-30a8-5664-b9be-9ea21fbdcd95",
+      "name": "Gemini: juiz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Preparar juiz').item.json._model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 8000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "9e6eb2e5-e66e-5b8a-bcef-9831273e9a31",
+      "name": "Medir juiz",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const PRICES={'gemini-2.5-flash':[0.30,2.50],'gemini-2.5-flash-lite':[0.10,0.40],'gemini-2.0-flash':[0.10,0.40],'gemini-2.5-pro':[1.25,10]};\nconst cost=(m,i,o)=>{const p=PRICES[m]||[0,0];return Math.round(((i||0)*p[0]+(o||0)*p[1])/1e6*1e6)/1e6;};\nconst src=$('Preparar juiz').item.json, r=$json, u=r.usageMetadata||{};\nconst a=$('Uma por vez').item.json, A=$('Medir A').item.json, B=$('Medir B').item.json;\nlet err=null,s1=null,s2=null;\ntry{ if(r.error) throw new Error(typeof r.error==='string'?r.error:(r.error.message||'erro'));\n  const j=JSON.parse((((r.candidates||[])[0]||{}).content||{}).parts?.[0]?.text||'');\n  s1=Number(j.nota_1); s2=Number(j.nota_2);\n  if(![s1,s2].every(x=>x>=1&&x<=5)) throw new Error('nota fora de 1 a 5'); }catch(e){err=String(e.message||e).slice(0,300);}\nconst o=(u.candidatesTokenCount||0)+(u.thoughtsTokenCount||0);\nconst judge={workflow:'teste-ab',step:'avaliacao',model:src._model,prompt_version:null,input_tokens:u.promptTokenCount||0,output_tokens:o,\n latency_ms:Date.now()-src._t0,cost_usd:cost(src._model,u.promptTokenCount||0,o),status:err?'error':'ok',error:err};\nconst aScore=err?null:(src._flip?s2:s1), bScore=err?null:(src._flip?s1:s2);\nreturn {json:{calls:[A.call,B.call,judge].map(c=>({...c,article_id:a.article_id})),\n sample:{title:a.title,a_text:A.text,b_text:B.text,a_score:aScore,b_score:bScore,a_cost:A.call.cost_usd,b_cost:B.call.cost_usd,\n  a_lat:A.call.latency_ms,b_lat:B.call.latency_ms,a_out:A.call.output_tokens,b_out:B.call.output_tokens,\n  extra_cost:judge.cost_usd}}};",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "ea29a58d-731d-5800-ba4d-8e4c67ab0563",
+      "name": "Linhas das chamadas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return $input.first().json.calls.map(c=>({json:c}));"
+      }
+    },
+    {
+      "id": "5cf42b41-9ee1-566a-8f86-d78c93c308e7",
+      "name": "Salvar chamadas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        5040,
+        -160
+      ],
+      "parameters": {
+        "operation": "create",
+        "tableId": "llm_calls",
+        "dataToSend": "autoMapInputData"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase Sinal"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "919c143c-dd97-5520-bf9b-feeb3544f82b",
+      "name": "Guardar amostra",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{sample:$('Medir juiz').first().json.sample}}];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "be5a8f63-fd60-5d8c-978d-04b749fac5eb",
+      "name": "Pausa 3",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5520,
+        -160
+      ],
+      "parameters": {
+        "amount": 4,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "8900806f-448b-5576-b1e4-c95513512301",
+      "name": "Agregar resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        160
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Config').first().json;\nconst S=$input.all().map(i=>i.json.sample).filter(Boolean);\nconst avg=(arr)=>arr.length?arr.reduce((x,y)=>x+y,0)/arr.length:0;\nconst r=(x,d)=>Math.round(x*10**d)/10**d;\nconst side=(k)=>{const sc=S.map(s=>s[k+'_score']).filter(x=>x!=null);\n  return {avg_score:r(avg(sc),2),avg_cost:r(avg(S.map(s=>s[k+'_cost'])),6),avg_latency_ms:Math.round(avg(S.map(s=>s[k+'_lat']))),avg_output_tokens:Math.round(avg(S.map(s=>s[k+'_out'])))};};\nconst a=side('a'), b=side('b');\nconst d=b.avg_score-a.avg_score;\nconst winner=!S.length||Math.abs(d)<0.3?'empate':(d>0?'B':'A');   // diferença menor que 0,3 ponto = empate\nconst result={n:S.length,judge_model:cfg.judge_model,winner,a,b,samples:S.slice(0,3).map(s=>({title:s.title,a_text:s.a_text,b_text:s.b_text,a_score:s.a_score,b_score:s.b_score}))};\nreturn [{json:{status:S.length?'done':'error',result}}];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "3b0fdfdf-98fc-5846-92f9-dae6d122fe51",
+      "name": "Salvar resultado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        160
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.supabase_url }}/rest/v1/prompt_tests?id=eq.{{ $('Validar').first().json.test.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase Sinal"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook do site": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Ler teste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler teste": {
+      "main": [
+        [
+          {
+            "node": "Validar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar": {
+      "main": [
+        [
+          {
+            "node": "Marcar como rodando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar como rodando": {
+      "main": [
+        [
+          {
+            "node": "Notícias recentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notícias recentes": {
+      "main": [
+        [
+          {
+            "node": "Escolher amostra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escolher amostra": {
+      "main": [
+        [
+          {
+            "node": "Tem notícias?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem notícias?": {
+      "main": [
+        [
+          {
+            "node": "Uma por vez",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Agregar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Uma por vez": {
+      "main": [
+        [
+          {
+            "node": "Agregar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar A": {
+      "main": [
+        [
+          {
+            "node": "Gemini: prompt A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: prompt A": {
+      "main": [
+        [
+          {
+            "node": "Medir A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Medir A": {
+      "main": [
+        [
+          {
+            "node": "Pausa 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa 1": {
+      "main": [
+        [
+          {
+            "node": "Preparar B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar B": {
+      "main": [
+        [
+          {
+            "node": "Gemini: prompt B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: prompt B": {
+      "main": [
+        [
+          {
+            "node": "Medir B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Medir B": {
+      "main": [
+        [
+          {
+            "node": "Pausa 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa 2": {
+      "main": [
+        [
+          {
+            "node": "Preparar juiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar juiz": {
+      "main": [
+        [
+          {
+            "node": "Gemini: juiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: juiz": {
+      "main": [
+        [
+          {
+            "node": "Medir juiz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Medir juiz": {
+      "main": [
+        [
+          {
+            "node": "Linhas das chamadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Linhas das chamadas": {
+      "main": [
+        [
+          {
+            "node": "Salvar chamadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar chamadas": {
+      "main": [
+        [
+          {
+            "node": "Guardar amostra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar amostra": {
+      "main": [
+        [
+          {
+            "node": "Pausa 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausa 3": {
+      "main": [
+        [
+          {
+            "node": "Uma por vez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar resultado": {
+      "main": [
+        [
+          {
+            "node": "Salvar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {}
+}
