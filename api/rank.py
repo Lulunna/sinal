@@ -1,8 +1,9 @@
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _http import make_handler  # noqa: E402
+from _http import JsonHandler  # noqa: E402
 from sinal_core import rank  # noqa: E402
 
 
@@ -16,4 +17,5 @@ def process(payload):
     return {"items": kept, "total": len(ranked), "kept": len(kept), "skipped": len(ranked) - len(kept)}
 
 
-handler = make_handler(process)
+class handler(JsonHandler, BaseHTTPRequestHandler):
+    process = staticmethod(process)

@@ -1,8 +1,9 @@
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _http import make_handler  # noqa: E402
+from _http import JsonHandler  # noqa: E402
 from sinal_core import estimate_cost  # noqa: E402
 
 
@@ -15,4 +16,5 @@ def process(payload):
     return estimate_cost(payload.get("model", ""), payload.get("input_tokens", 0), payload.get("output_tokens", 0))
 
 
-handler = make_handler(process)
+class handler(JsonHandler, BaseHTTPRequestHandler):
+    process = staticmethod(process)
